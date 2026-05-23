@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <title>Premium PDF Printer</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <style>
+        body { margin: 0; padding: 0; background-color: #f4f7f6; display: flex; flex-direction: column; align-items: center; font-family: 'Segoe UI', sans-serif; }
+        
+        .control-panel { 
+            background: #ffffff; padding: 25px 40px; border-radius: 50px; 
+            box-shadow: 0 8px 20px rgba(0,0,0,0.1); margin: 30px 0;
+            display: flex; gap: 20px; align-items: center; border: 1px solid #e2e8f0;
+        }
+
+        .print-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white; border: none; padding: 12px 30px;
+            border-radius: 30px; font-weight: 600; cursor: pointer;
+            transition: all 0.3s ease; box-shadow: 0 4px 15px rgba(118, 75, 162, 0.4);
+            font-size: 16px; text-transform: uppercase; letter-spacing: 1px;
+        }
+        .print-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(118, 75, 162, 0.6); }
+
+        #print-area { 
+            width: 14in; height: 8.5in; background: white; 
+            position: relative; overflow: hidden; display: none;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+        }
+        
+        #pdf-canvas { width: 100%; height: 100%; display: block; }
+
+        .footer-container { 
+            position: absolute; bottom: 0; left: 0; 
+            width: 100%; height: 100%; z-index: 10; pointer-events: none;
+        }
+
+        .logo-img { 
+            position: absolute; left: 50%; bottom: 30px; transform: translateX(-50%);
+            height: 65px; width: auto; object-fit: contain; 
+        }
+
+        /* QR Code: Margin theke matro 0.50 inch (48px) dure */
+        .qr-img { 
+            position: absolute; right: 48px; bottom: 30px;
+            height: 65px; width: auto; object-fit: contain; 
+        }
+
+        @media print {
+            @page { size: legal landscape; margin: 0; }
+            body { background: none; padding: 0; }
+            .control-panel { display: none; }
+            #print-area { display: block !important; margin: 0; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="control-panel">
+        <input type="file" id="pdf-upload" accept="application/pdf">
+        <button class="print-btn" onclick="window.print()">Print Document</button>
+    </div>
+
+    <div id="print-area">
+        <canvas id="pdf-canvas"></canvas>
+        <div class="footer-container">
+            <img src="2026-05-21_184521.jpg" class="logo-img" alt="Logo">
+            <img src="1779367340042.jpg" class="qr-img" alt="QR Code">
+        </div>
+    </div>
+
+    <script>
+        var pdfjsLib = window['pdfjs-dist/build/pdf'];
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+
+        document.getElementById('pdf-upload').addEventListener('change', function(e) {
+            var file = e.target.files[0];
+            if (file) {
+                document.getElementById('print-area').style.display = 'block';
+                var reader = new FileReader();
+                reader.onload = function() {
+                    var typedarray = new Uint8Array(this.result);
+                    pdfjsLib.getDocument(typedarray).promise.then(pdf => {
+                        pdf.getPage(1).then(page => {
+                            var canvas = document.getElementById('pdf-canvas');
+                            var context = canvas.getContext('2d');
+                            var viewport = page.getViewport({ scale: 2.0 });
+                            canvas.width = viewport.width;
+                            canvas.height = viewport.height;
+                            page.render({ canvasContext: context, viewport: viewport });
+                        });
+                    });
+                };
+                reader.readAsArrayBuffer(file);
+            }
+        });
+    </script>
+</body>
+</html>
