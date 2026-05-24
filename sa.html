@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <title>Premium PDF Printer</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <style>
+        body { margin: 0; padding: 0; background: #f0f2f5; }
+        .control-panel { padding: 20px; text-align: center; background: #fff; }
+        
+        #viewer-container { display: flex; flex-direction: column; align-items: center; }
+        
+        .page-wrapper { 
+            position: relative; background: white; margin-bottom: 0; 
+            overflow: hidden; display: block;
+        }
+        
+        .logo { position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%); height: 80px; z-index: 10; }
+        .qr { position: absolute; bottom: 80px; right: 80px; height: 80px; z-index: 10; }
+        
+        @media print {
+            .control-panel { display: none !important; }
+            body { padding: 0 !important; margin: 0 !important; }
+            
+            @page { size: auto; margin: 0mm; }
+            
+            .page-wrapper { 
+                margin: 0 !important; 
+                page-break-after: always; 
+                width: 100% !important;
+            }
+            .page-wrapper:last-child { page-break-after: avoid; }
+            canvas { width: 100% !important; height: auto !important; display: block; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="control-panel">
+        <input type="file" id="pdf-upload" accept="application/pdf">
+        <button onclick="window.print()">Print Document</button>
+    </div>
+
+    <div id="viewer-container"></div>
+
+    <script>
+        const logoSrc = '2026-05-21_184521.jpg';
+        const qrSrc = '1779367340042.jpg';
+
+        var pdfjsLib = window['pdfjs-dist/build/pdf'];
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+
+        document.getElementById('pdf-upload').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function() {
+                const typedarray = new Uint8Array(this.result);
+                pdfjsLib.getDocument(typedarray).promise.then(pdf => {
+                    const container = document.getElementById('viewer-container');
+                    container.innerHTML = '';
+                    
+                    for (let i = 1; i <= pdf.numPages; i++) {
+                        pdf.getPage(i).then(page => {
+                            const viewport = page.getViewport({ scale: 2.0 });
+                            const wrapper = document.createElement('div');
+                            wrapper.className = 'page-wrapper';
+                            
+                            const canvas = document.createElement('canvas');
+                            canvas.width = viewport.width;
+                            canvas.height = viewport.height;
+                            wrapper.appendChild(canvas);
+                            container.appendChild(wrapper);
+                            
+                            page.render({ canvasContext: canvas.getContext('2d'), viewport: viewport });
+
+                            if (i === 2 || (pdf.numPages === 1 && i === 1)) {
+                                const logo = document.createElement('img');
+                                logo.src = logoSrc; logo.className = 'logo';
+                                wrapper.appendChild(logo);
+                                
+                                const qr = document.createElement('img');
+                                qr.src = qrSrc; qr.className = 'qr';
+                                wrapper.appendChild(qr);
+                            }
+                        });
+                    }
+                });
+            };
+            reader.readAsArrayBuffer(file);
+        });
+    </script>
+</body>
+</html>
