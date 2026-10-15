@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <title>Premium PDF Printer</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <style>
+        * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        body { margin: 0; padding: 0; background-color: #f4f7f6; display: flex; flex-direction: column; align-items: center; font-family: 'Segoe UI', sans-serif; }
+
+        .control-panel {
+            background: #ffffff; padding: 20px 40px; border-radius: 50px;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.1); margin: 30px 0;
+            display: flex; gap: 20px; align-items: center; flex-wrap: wrap; justify-content: center;
+            border: 1px solid #e2e8f0;
+        }
+        .opt { display: flex; align-items: center; gap: 8px; font-size: 14px; color: #333; }
+        .opt input[type=range] { width: 160px; }
+
+        .print-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white; border: none; padding: 12px 30px;
+            border-radius: 30px; font-weight: 600; cursor: pointer;
+            transition: all 0.3s ease; box-shadow: 0 4px 15px rgba(118, 75, 162, 0.4);
+            font-size: 16px; text-transform: uppercase; letter-spacing: 1px;
+        }
+        .print-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(118, 75, 162, 0.6); }
+
+        /* A4 Landscape: 297mm x 210mm */
+        #print-area {
+            width: 297mm; height: 210mm; background: white;
+            position: relative; overflow: hidden; display: none;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+        }
+
+        /* PDF একদম উপরে, footer-এর ঠিক উপর পর্যন্ত জায়গা নেবে */
+        #pdf-canvas { position: absolute; display: block; }
+
+        .footer-container {
+            position: absolute; bottom: 0; left: 0;
+            width: 100%; height: 20mm;
+            z-index: 10; pointer-events: none;
+        }
+        /* Logo ও QR আগের চেয়ে নিচে (বটম থেকে 3mm) */
+        .logo-img {
+            position: absolute; left: 50%; bottom: 3mm; transform: translateX(-50%);
+            height: 17mm; width: auto; object-fit: contain;
+        }
+        .qr-img {
+            position: absolute; right: 48px; bottom: 3mm;
+            height: 17mm; width: auto; object-fit: contain;
+        }
+
+        @media print {
+            @page { size: A4 landscape; margin: 0; }
+            body { background: none; padding: 0; }
+            .control-panel { display: none; }
+            #print-area { display: block !important; margin: 0; box-shadow: none; width: 297mm; height: 210mm; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="control-panel">
+        <input type="file" id="pdf-upload" accept="application/pdf">
+        <label class="opt">লেখা কালো:
+            <input type="range" id="dark" min="0" max="100" value="60">
+            <span id="dark-val">60</span>
+        </label>
+        <label class="opt"><input type="checkbox" id="bold"> লেখা মোটা (Bold)</label>
+        <button class="print-btn" onclick="window.print()">Print Document</button>
+    </div>
+
+    <div id="print-area">
+        <canvas id="pdf-canvas"></canvas>
+        <div class="footer-container">
+            <img src="2026-05-21_184521.jpg" class="logo-img" alt="Logo">
+            <img src="1779367340042.jpg" class="qr-img" alt="QR Code">
+        </div>
+    </div>
+
+    <script>
+        var pdfjsLib = window['pdfjs-dist/build/pdf'];
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+
+        // mm এককে লে-আউট
+        var PAGE_W = 297, PAGE_H = 210;
+        var FOOTER_H = 20;      // logo/QR এর জন্য নিচের জায়গা
+        var SIDE_MARGIN = 5;    // দুই পাশে মার্জিন
+        var TOP_MARGIN = 5;     // উপরে সামান্য মার্জিন
+        var GAP = 2;            // PDF আর footer এর মাঝে ফাঁক
+
+        var cropCanvas = null;  // PDF-এর শুধু লেখা/বক্স অংশ (সাদা মার্জিন কাটা)
+
+        function layoutCanvas() {
+            var canvas = document.getElementById('pdf-canvas');
+            var availW = PAGE_W - 2 * SIDE_MARGIN;
+            var availH = PAGE_H - FOOTER_H - TOP_MARGIN - GAP;
+            var s = Math.min(availW / cropCanvas.width, availH / cropCanvas.height);
+            var w = cropCanvas.width * s, h = cropCanvas.height * s;
+            canvas.style.width = w + 'mm';
+            canvas.style.height = h + 'mm';
+            canvas.style.left = ((PAGE_W - w) / 2) + 'mm';
+            canvas.style.top = TOP_MARGIN + 'mm';
+        }
+
+        function minFilter(data, w, h) {
+            // 3x3 min filter => কালো লেখা সামান্য মোটা হয়
+            var tmp = new Uint8ClampedArray(data.length);
+            var out = new Uint8ClampedArray(data.length);
+            var x, y, c, i, m;
+            for (y = 0; y < h; y++) for (x = 0; x < w; x++) for (c = 0; c < 3; c++) {
+                i = (y * w + x) * 4 + c; m = data[i];
+                if (x > 0 && data[i - 4] < m) m = data[i - 4];
+                if (x < w - 1 && data[i + 4] < m) m = data[i + 4];
+                tmp[i] = m;
+            }
+            for (y = 0; y < h; y++) for (x = 0; x < w; x++) for (c = 0; c < 3; c++) {
+                i = (y * w + x) * 4 + c; m = tmp[i];
+                if (y > 0 && tmp[i - w * 4] < m) m = tmp[i - w * 4];
+                if (y < h - 1 && tmp[i + w * 4] < m) m = tmp[i + w * 4];
+                out[i] = m;
+            }
+            for (i = 3; i < data.length; i += 4) out[i] = 255;
+            return out;
+        }
+
+        function applyDarkness() {
+            if (!cropCanvas) return;
+            var level = parseInt(document.getElementById('dark').value, 10);
+            document.getElementById('dark-val').textContent = level;
+            var bold = document.getElementById('bold').checked;
+            var canvas = document.getElementById('pdf-canvas');
+            canvas.width = cropCanvas.width;
+            canvas.height = cropCanvas.height;
+            var ctx = canvas.getContext('2d');
+            ctx.drawImage(cropCanvas, 0, 0);
+            var img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            var d = img.data;
+            var gamma = 1 + level / 20; // 1 (আসল) থেকে 6 (খুব কালো)
+            var lut = new Uint8ClampedArray(256);
+            for (var v = 0; v < 256; v++) lut[v] = 255 * Math.pow(v / 255, gamma);
+            for (var i = 0; i < d.length; i += 4) {
+                d[i] = lut[d[i]]; d[i + 1] = lut[d[i + 1]]; d[i + 2] = lut[d[i + 2]];
+            }
+            if (bold) {
+                var o = minFilter(d, canvas.width, canvas.height);
+                for (var j = 0; j < d.length; j++) d[j] = o[j];
+            }
+            ctx.putImageData(img, 0, 0);
+            layoutCanvas();
+        }
+
+        function buildCrop(sourceCanvas) {
+            var w = sourceCanvas.width, h = sourceCanvas.height;
+            var ctx = sourceCanvas.getContext('2d');
+            var d = ctx.getImageData(0, 0, w, h).data;
+            var minX = w, minY = h, maxX = -1, maxY = -1;
+            for (var y = 0; y < h; y++) {
+                for (var x = 0; x < w; x++) {
+                    var i = (y * w + x) * 4;
+                    if (d[i + 3] > 0 && (d[i] < 235 || d[i + 1] < 235 || d[i + 2] < 235)) {
+                        if (x < minX) minX = x;
+                        if (x > maxX) maxX = x;
+                        if (y < minY) minY = y;
+                        if (y > maxY) maxY = y;
+                    }
+                }
+            }
+            if (maxX < 0) { minX = 0; minY = 0; maxX = w - 1; maxY = h - 1; }
+            var pad = 4;
+            minX = Math.max(0, minX - pad); minY = Math.max(0, minY - pad);
+            maxX = Math.min(w - 1, maxX + pad); maxY = Math.min(h - 1, maxY + pad);
+            var cw = maxX - minX + 1, ch = maxY - minY + 1;
+            var c = document.createElement('canvas');
+            c.width = cw; c.height = ch;
+            var cctx = c.getContext('2d');
+            cctx.fillStyle = '#fff';
+            cctx.fillRect(0, 0, cw, ch);
+            cctx.drawImage(sourceCanvas, minX, minY, cw, ch, 0, 0, cw, ch);
+            return c;
+        }
+
+        document.getElementById('dark').addEventListener('input', applyDarkness);
+        document.getElementById('bold').addEventListener('change', applyDarkness);
+
+        document.getElementById('pdf-upload').addEventListener('change', function(e) {
+            var file = e.target.files[0];
+            if (!file) return;
+            document.getElementById('print-area').style.display = 'block';
+            var reader = new FileReader();
+            reader.onload = function() {
+                var typedarray = new Uint8Array(this.result);
+                pdfjsLib.getDocument(typedarray).promise.then(function(pdf) {
+                    return pdf.getPage(1);
+                }).then(function(page) {
+                    // উচ্চ রেজোলিউশনে অফস্ক্রিনে রেন্ডার (প্রিন্ট শার্প হবে)
+                    var base = page.getViewport({ scale: 1 });
+                    var scale = 3400 / base.width;
+                    var vp = page.getViewport({ scale: scale });
+                    var off = document.createElement('canvas');
+                    off.width = Math.round(vp.width);
+                    off.height = Math.round(vp.height);
+                    var octx = off.getContext('2d');
+                    octx.fillStyle = '#fff';
+                    octx.fillRect(0, 0, off.width, off.height);
+                    return page.render({ canvasContext: octx, viewport: vp }).promise.then(function() {
+                        cropCanvas = buildCrop(off);
+                        applyDarkness();
+                    });
+                });
+            };
+            reader.readAsArrayBuffer(file);
+        });
+    </script>
+</body>
+</html>
